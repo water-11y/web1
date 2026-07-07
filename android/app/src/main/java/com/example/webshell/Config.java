@@ -5,5 +5,5 @@ public final class Config {
 
     // Current PC Wi-Fi IP for local emulator/device testing.
     // For real distribution, replace this with your public HTTPS server.
-    public static final String API_BASE_URL = "http://192.168.0.33:3000";
+    public static final String API_BASE_URL = "https://web1-production-f158.up.railway.app";
 }

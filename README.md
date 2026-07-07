@@ -38,6 +38,30 @@ Open the web admin page:
 http://localhost:3000
 ```
 
+On Railway, open your Railway public domain:
+
+```text
+https://your-app.up.railway.app
+```
+
+The web console now has:
+
+```text
+Super Admin tab
+- platform overview
+- customer admin creation
+- app creation and owner assignment
+
+Customer Admin tab
+- load assigned apps
+- edit app name
+- edit website URL
+- edit Android package name
+- set icon URL
+- set splash image URL
+- request APK build
+```
+
 ## End User App Flow
 
 ```text
@@ -70,6 +94,34 @@ Body:
   "url": "https://example.com"
 }
 ```
+
+Customer Admin can also update app builder settings:
+
+```text
+POST /api/admin/apps/demo/settings
+```
+
+Body:
+
+```json
+{
+  "adminId": "customer-demo",
+  "adminKey": "admin-demo-1234",
+  "name": "Demo App",
+  "url": "https://example.com",
+  "packageName": "com.web1.demo",
+  "iconUrl": "https://example.com/icon.png",
+  "splashUrl": "https://example.com/splash.png"
+}
+```
+
+Customer Admin can request an APK build:
+
+```text
+POST /api/admin/apps/demo/builds
+```
+
+This sets `buildStatus` to `queued`. The next production step is to connect a build worker, such as GitHub Actions or a dedicated Android build server, that reads queued builds and produces signed APK files.
 
 ## Super Admin Flow
 

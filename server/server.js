@@ -51,6 +51,12 @@ function defaultData() {
         name: "Demo App",
         ownerAdminId: "customer-demo",
         url: "https://example.com",
+        packageName: "com.web1.demo",
+        iconUrl: "",
+        splashUrl: "",
+        buildStatus: "not_requested",
+        buildRequestedAt: null,
+        apkUrl: "",
         createdBy: "super_admin",
         createdAt,
         updatedAt: createdAt,
@@ -74,6 +80,12 @@ function migrateData(data) {
   for (const [appKey, app] of Object.entries(data.apps)) {
     app.appKey = app.appKey || appKey;
     app.ownerAdminId = app.ownerAdminId || "customer-demo";
+    app.packageName = app.packageName || `com.web1.${appKey.replace(/[^a-zA-Z0-9_]/g, "").toLowerCase() || "app"}`;
+    app.iconUrl = app.iconUrl || "";
+    app.splashUrl = app.splashUrl || "";
+    app.buildStatus = app.buildStatus || "not_requested";
+    app.buildRequestedAt = app.buildRequestedAt || null;
+    app.apkUrl = app.apkUrl || "";
     app.createdBy = app.createdBy || "super_admin";
     app.createdAt = app.createdAt || app.updatedAt || now();
     app.updatedAt = app.updatedAt || now();
@@ -111,6 +123,12 @@ async function initStorage() {
       name TEXT NOT NULL,
       owner_admin_id TEXT NOT NULL REFERENCES customer_admins(id) ON DELETE RESTRICT,
       url TEXT NOT NULL,
+      package_name TEXT NOT NULL DEFAULT '',
+      icon_url TEXT NOT NULL DEFAULT '',
+      splash_url TEXT NOT NULL DEFAULT '',
+      build_status TEXT NOT NULL DEFAULT 'not_requested',
+      build_requested_at TIMESTAMPTZ,
+      apk_url TEXT NOT NULL DEFAULT '',
       created_by TEXT NOT NULL DEFAULT 'super_admin',
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -122,6 +140,15 @@ async function initStorage() {
       last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       PRIMARY KEY (device_id, app_key)
     );
+  `);
+
+  await pool.query(`
+    ALTER TABLE apps ADD COLUMN IF NOT EXISTS package_name TEXT NOT NULL DEFAULT '';
+    ALTER TABLE apps ADD COLUMN IF NOT EXISTS icon_url TEXT NOT NULL DEFAULT '';
+    ALTER TABLE apps ADD COLUMN IF NOT EXISTS splash_url TEXT NOT NULL DEFAULT '';
+    ALTER TABLE apps ADD COLUMN IF NOT EXISTS build_status TEXT NOT NULL DEFAULT 'not_requested';
+    ALTER TABLE apps ADD COLUMN IF NOT EXISTS build_requested_at TIMESTAMPTZ;
+    ALTER TABLE apps ADD COLUMN IF NOT EXISTS apk_url TEXT NOT NULL DEFAULT '';
   `);
 
   const count = await pool.query("SELECT COUNT(*)::int AS count FROM platform_settings WHERE key = 'super_admin_key_hash'");
@@ -149,7 +176,7 @@ async function readDatabaseData() {
   const [settings, admins, apps, users] = await Promise.all([
     pool.query("SELECT key, value, updated_at FROM platform_settings"),
     pool.query("SELECT id, name, admin_key_hash, created_at, updated_at FROM customer_admins ORDER BY id"),
-    pool.query("SELECT app_key, name, owner_admin_id, url, created_by, created_at, updated_at FROM apps ORDER BY app_key"),
+    pool.query("SELECT app_key, name, owner_admin_id, url, package_name, icon_url, splash_url, build_status, build_requested_at, apk_url, created_by, created_at, updated_at FROM apps ORDER BY app_key"),
     pool.query("SELECT device_id, app_key, first_seen_at, last_seen_at FROM end_users"),
   ]);
 
@@ -178,6 +205,12 @@ async function readDatabaseData() {
       name: app.name,
       ownerAdminId: app.owner_admin_id,
       url: app.url,
+      packageName: app.package_name,
+      iconUrl: app.icon_url,
+      splashUrl: app.splash_url,
+      buildStatus: app.build_status,
+      buildRequestedAt: app.build_requested_at ? app.build_requested_at.toISOString() : null,
+      apkUrl: app.apk_url,
       createdBy: app.created_by,
       createdAt: app.created_at.toISOString(),
       updatedAt: app.updated_at.toISOString(),
@@ -231,11 +264,34 @@ async function writeDatabaseData(data) {
 
     for (const app of Object.values(data.apps)) {
       await client.query(
-        `INSERT INTO apps (app_key, name, owner_admin_id, url, created_by, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `INSERT INTO apps (app_key, name, owner_admin_id, url, package_name, icon_url, splash_url, build_status, build_requested_at, apk_url, created_by, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
          ON CONFLICT (app_key) DO UPDATE
-         SET name = EXCLUDED.name, owner_admin_id = EXCLUDED.owner_admin_id, url = EXCLUDED.url, updated_at = EXCLUDED.updated_at`,
-        [app.appKey, app.name, app.ownerAdminId, app.url, app.createdBy, app.createdAt, app.updatedAt]
+         SET name = EXCLUDED.name,
+             owner_admin_id = EXCLUDED.owner_admin_id,
+             url = EXCLUDED.url,
+             package_name = EXCLUDED.package_name,
+             icon_url = EXCLUDED.icon_url,
+             splash_url = EXCLUDED.splash_url,
+             build_status = EXCLUDED.build_status,
+             build_requested_at = EXCLUDED.build_requested_at,
+             apk_url = EXCLUDED.apk_url,
+             updated_at = EXCLUDED.updated_at`,
+        [
+          app.appKey,
+          app.name,
+          app.ownerAdminId,
+          app.url,
+          app.packageName,
+          app.iconUrl,
+          app.splashUrl,
+          app.buildStatus,
+          app.buildRequestedAt,
+          app.apkUrl,
+          app.createdBy,
+          app.createdAt,
+          app.updatedAt,
+        ]
       );
     }
 
@@ -303,6 +359,21 @@ function normalizeUrl(input) {
   return url.toString();
 }
 
+function normalizeOptionalUrl(input) {
+  if (!input) return "";
+  return normalizeUrl(input);
+}
+
+function normalizePackageName(input, appKey) {
+  const value = String(input || "").trim();
+  const fallback = `com.web1.${appKey.replace(/[^a-zA-Z0-9_]/g, "").toLowerCase() || "app"}`;
+  const packageName = value || fallback;
+  if (!/^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$/.test(packageName)) {
+    throw new Error("Invalid Android package name");
+  }
+  return packageName;
+}
+
 function hasSuperAdminAccess(data, superAdminKey) {
   return Boolean(superAdminKey && data.platform.superAdminKeyHash === hashSecret(superAdminKey));
 }
@@ -327,7 +398,21 @@ function publicApp(appKey, app) {
     appKey,
     name: app.name,
     url: app.url,
+    iconUrl: app.iconUrl,
+    splashUrl: app.splashUrl,
+    buildStatus: app.buildStatus,
+    apkUrl: app.apkUrl,
     updatedAt: app.updatedAt,
+  };
+}
+
+function adminApp(appKey, app) {
+  return {
+    ...publicApp(appKey, app),
+    packageName: app.packageName,
+    ownerAdminId: app.ownerAdminId,
+    buildRequestedAt: app.buildRequestedAt,
+    createdAt: app.createdAt,
   };
 }
 
@@ -355,6 +440,8 @@ function buildOverview(data) {
           appKey: app.appKey,
           name: app.name,
           url: app.url,
+          packageName: app.packageName,
+          buildStatus: app.buildStatus,
           endUserCount: userCountsByApp[app.appKey] || 0,
           updatedAt: app.updatedAt,
         })),
@@ -369,82 +456,231 @@ function adminPage() {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Web1 Platform Admin</title>
+  <title>Web1 Platform</title>
   <style>
-    body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, sans-serif; background: #f5f7fb; color: #172033; }
-    main { max-width: 980px; margin: 40px auto; padding: 0 20px; }
-    h1 { margin: 0 0 8px; font-size: 28px; }
-    p { color: #5b6475; line-height: 1.55; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
-    section { background: white; border: 1px solid #dfe5ef; border-radius: 8px; padding: 20px; box-shadow: 0 10px 30px rgba(23, 32, 51, .08); }
-    h2 { margin: 0 0 12px; font-size: 18px; }
-    label { display: block; margin: 12px 0 5px; font-weight: 650; }
-    input { width: 100%; box-sizing: border-box; border: 1px solid #cbd4e1; border-radius: 6px; padding: 11px; font: inherit; }
-    button { margin-top: 16px; border: 0; border-radius: 6px; padding: 11px 14px; background: #1769e0; color: white; font-weight: 700; cursor: pointer; }
-    pre { white-space: pre-wrap; background: #101828; color: #d1fadf; border-radius: 6px; padding: 12px; min-height: 44px; overflow: auto; }
+    :root { color-scheme: light; --line: #d9e1ec; --muted: #5d6678; --ink: #172033; --blue: #1769e0; --bg: #f4f7fb; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, sans-serif; background: var(--bg); color: var(--ink); }
+    header { background: #ffffff; border-bottom: 1px solid var(--line); }
+    .bar { max-width: 1180px; margin: 0 auto; padding: 18px 20px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+    h1 { margin: 0; font-size: 22px; }
+    .sub { color: var(--muted); font-size: 13px; }
+    main { max-width: 1180px; margin: 22px auto; padding: 0 20px 40px; }
+    .tabs { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+    .tabs button { background: #e9eef6; color: #27364c; }
+    .tabs button.active { background: var(--blue); color: #fff; }
+    .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 16px; }
+    section { background: white; border: 1px solid var(--line); border-radius: 8px; padding: 18px; }
+    .span4 { grid-column: span 4; }
+    .span6 { grid-column: span 6; }
+    .span8 { grid-column: span 8; }
+    .span12 { grid-column: span 12; }
+    h2 { margin: 0 0 12px; font-size: 17px; }
+    h3 { margin: 16px 0 8px; font-size: 15px; }
+    label { display: block; margin: 11px 0 5px; font-size: 13px; font-weight: 700; }
+    input, select { width: 100%; border: 1px solid #cbd4e1; border-radius: 6px; padding: 10px; font: inherit; background: #fff; }
+    button { border: 0; border-radius: 6px; padding: 10px 13px; background: var(--blue); color: white; font-weight: 750; cursor: pointer; }
+    button.secondary { background: #e9eef6; color: #27364c; }
+    button.warn { background: #b42318; }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+    .metric { border: 1px solid var(--line); border-radius: 8px; padding: 14px; background: #fbfcff; }
+    .metric strong { display: block; font-size: 26px; margin-bottom: 4px; }
+    .table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .table th, .table td { border-bottom: 1px solid var(--line); padding: 9px 8px; text-align: left; vertical-align: top; }
+    .table th { color: var(--muted); font-size: 12px; }
+    pre { white-space: pre-wrap; background: #101828; color: #d1fadf; border-radius: 6px; padding: 12px; min-height: 74px; overflow: auto; }
+    .hidden { display: none; }
+    @media (max-width: 860px) { .span4, .span6, .span8, .span12 { grid-column: span 12; } }
   </style>
 </head>
 <body>
+  <header>
+    <div class="bar">
+      <div>
+        <h1>Web1 App Platform</h1>
+        <div class="sub">Web URL to Android WebView APK management</div>
+      </div>
+      <div class="sub">Super Admin -> Customer Admin -> End User</div>
+    </div>
+  </header>
   <main>
-    <h1>Web1 3-Level Platform</h1>
-    <p>Role tree: Super Admin -> Customer Admin -> End User. End users only read app URL settings through the app key.</p>
-    <div class="grid">
+    <div class="tabs">
+      <button class="active" data-tab="super">Super Admin</button>
+      <button data-tab="customer">Customer Admin</button>
+      <button data-tab="result">Result</button>
+    </div>
+
+    <div id="tab-super">
+      <div class="grid">
+        <section class="span4">
+          <h2>Super Admin Login</h2>
+          <label>Super Admin Key</label><input id="superKey" value="super-root-1234">
+          <div class="actions"><button id="loadOverview">Load Overview</button></div>
+        </section>
+        <section class="span8">
+          <h2>Platform Overview</h2>
+          <div class="grid">
+            <div class="metric span4"><strong id="totalAdmins">0</strong><span>Customer Admins</span></div>
+            <div class="metric span4"><strong id="totalApps">0</strong><span>Apps</span></div>
+            <div class="metric span4"><strong id="totalUsers">0</strong><span>End Users</span></div>
+          </div>
+          <h3>Customer Admin Status</h3>
+          <div id="overviewTable"></div>
+        </section>
+        <section class="span6">
+          <h2>Create Customer Admin</h2>
+          <label>Customer Admin ID</label><input id="newAdminId" value="customer-demo">
+          <label>Name</label><input id="newAdminName" value="Demo Customer Admin">
+          <label>Initial / Reset Key</label><input id="newAdminKey" value="admin-demo-1234">
+          <div class="actions"><button id="createAdmin">Create / Update Admin</button></div>
+        </section>
+        <section class="span6">
+          <h2>Create App</h2>
+          <label>App Key</label><input id="newAppKey" value="demo">
+          <label>App Name</label><input id="newAppName" value="Demo App">
+          <label>Owner Customer Admin ID</label><input id="ownerAdminId" value="customer-demo">
+          <label>Website URL</label><input id="initialUrl" value="https://example.com">
+          <label>Package Name</label><input id="initialPackage" value="com.web1.demo">
+          <label>Icon URL</label><input id="initialIcon" placeholder="https://example.com/icon.png">
+          <label>Splash Image URL</label><input id="initialSplash" placeholder="https://example.com/splash.png">
+          <div class="actions"><button id="createApp">Create / Update App</button></div>
+        </section>
+      </div>
+    </div>
+
+    <div id="tab-customer" class="hidden">
+      <div class="grid">
+        <section class="span4">
+          <h2>Customer Admin Login</h2>
+          <label>Customer Admin ID</label><input id="adminId" value="customer-demo">
+          <label>Customer Admin Key</label><input id="adminKey" value="admin-demo-1234">
+          <div class="actions"><button id="loadMyApps">Load My Apps</button></div>
+          <h3>My Apps</h3>
+          <select id="myApps" size="6"></select>
+        </section>
+        <section class="span8">
+          <h2>App Builder</h2>
+          <label>App Key</label><input id="editAppKey" value="demo">
+          <label>App Name</label><input id="editName" value="Demo App">
+          <label>Website URL</label><input id="editUrl" value="https://example.com">
+          <label>Package Name</label><input id="editPackage" value="com.web1.demo">
+          <label>Icon URL</label><input id="editIcon" placeholder="https://example.com/icon.png">
+          <label>Splash Image URL</label><input id="editSplash" placeholder="https://example.com/splash.png">
+          <div class="actions">
+            <button id="saveSettings">Save App Settings</button>
+            <button id="requestBuild" class="secondary">Request APK Build</button>
+          </div>
+          <h3>Build Status</h3>
+          <pre id="buildStatus">No app loaded.</pre>
+        </section>
+      </div>
+    </div>
+
+    <div id="tab-result" class="hidden">
       <section>
-        <h2>Super Admin: create customer admin</h2>
-        <label>Super Admin Key</label><input id="superKey1" value="super-root-1234">
-        <label>Customer Admin ID</label><input id="newAdminId" value="customer-demo">
-        <label>Customer Admin Name</label><input id="newAdminName" value="Demo Customer Admin">
-        <label>Customer Admin Key</label><input id="newAdminKey" value="admin-demo-1234">
-        <button id="createAdmin">Create / Update Customer Admin</button>
-      </section>
-      <section>
-        <h2>Super Admin: create app</h2>
-        <label>Super Admin Key</label><input id="superKey2" value="super-root-1234">
-        <label>App Key</label><input id="newAppKey" value="demo">
-        <label>App Name</label><input id="newAppName" value="Demo App">
-        <label>Owner Customer Admin ID</label><input id="ownerAdminId" value="customer-demo">
-        <label>Initial URL</label><input id="initialUrl" value="https://example.com">
-        <button id="createApp">Create / Update App</button>
-      </section>
-      <section>
-        <h2>Customer Admin: update app URL</h2>
-        <label>Customer Admin ID</label><input id="adminId" value="customer-demo">
-        <label>Customer Admin Key</label><input id="adminKey" value="admin-demo-1234">
-        <label>App Key</label><input id="appKey" value="demo">
-        <label>URL</label><input id="url" value="https://example.com">
-        <button id="saveUrl">Save URL</button>
-      </section>
-      <section>
-        <h2>Result</h2>
+        <h2>API Result</h2>
         <pre id="result">Ready</pre>
       </section>
     </div>
   </main>
   <script>
     const result = document.getElementById("result");
-    async function post(path, body) {
-      result.textContent = "Working...";
-      const res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      result.textContent = JSON.stringify(await res.json(), null, 2);
+    let loadedApps = [];
+    function showTab(name) {
+      for (const btn of document.querySelectorAll(".tabs button")) btn.classList.toggle("active", btn.dataset.tab === name);
+      for (const tab of ["super", "customer", "result"]) document.getElementById("tab-" + tab).classList.toggle("hidden", tab !== name);
     }
+    for (const btn of document.querySelectorAll(".tabs button")) btn.onclick = () => showTab(btn.dataset.tab);
+    function showResult(value) {
+      result.textContent = typeof value === "string" ? value : JSON.stringify(value, null, 2);
+    }
+    async function getJson(path) {
+      const res = await fetch(path);
+      const data = await res.json();
+      showResult(data);
+      return data;
+    }
+    async function post(path, body) {
+      showResult("Working...");
+      const res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const data = await res.json();
+      showResult(data);
+      return data;
+    }
+    function appOptionText(app) {
+      return app.appKey + " | " + app.name + " | " + app.buildStatus;
+    }
+    function fillAppEditor(app) {
+      editAppKey.value = app.appKey || "";
+      editName.value = app.name || "";
+      editUrl.value = app.url || "";
+      editPackage.value = app.packageName || "";
+      editIcon.value = app.iconUrl || "";
+      editSplash.value = app.splashUrl || "";
+      buildStatus.textContent = JSON.stringify({
+        appKey: app.appKey,
+        buildStatus: app.buildStatus,
+        buildRequestedAt: app.buildRequestedAt,
+        apkUrl: app.apkUrl || null
+      }, null, 2);
+    }
+    function renderOverview(data) {
+      totalAdmins.textContent = data.totals.customerAdmins;
+      totalApps.textContent = data.totals.apps;
+      totalUsers.textContent = data.totals.endUsers;
+      overviewTable.innerHTML = '<table class="table"><thead><tr><th>Admin</th><th>Apps</th><th>Users</th><th>App Detail</th></tr></thead><tbody>' +
+        data.customerAdmins.map((admin) => '<tr><td>' + admin.adminId + '<br><span class="sub">' + admin.name + '</span></td><td>' + admin.appCount + '</td><td>' + admin.endUserCount + '</td><td>' +
+          admin.apps.map((app) => app.appKey + ' / ' + app.name + ' / users ' + app.endUserCount + ' / ' + app.buildStatus).join('<br>') +
+          '</td></tr>').join("") + '</tbody></table>';
+    }
+    loadOverview.onclick = async () => {
+      const data = await getJson("/api/super/overview?superAdminKey=" + encodeURIComponent(superKey.value.trim()));
+      if (!data.error) renderOverview(data);
+    };
     document.getElementById("createAdmin").onclick = () => post("/api/super/customer-admins", {
-      superAdminKey: superKey1.value.trim(),
+      superAdminKey: superKey.value.trim(),
       adminId: newAdminId.value.trim(),
       name: newAdminName.value.trim(),
       adminKey: newAdminKey.value.trim()
     });
     document.getElementById("createApp").onclick = () => post("/api/super/apps", {
-      superAdminKey: superKey2.value.trim(),
+      superAdminKey: superKey.value.trim(),
       appKey: newAppKey.value.trim(),
       name: newAppName.value.trim(),
       ownerAdminId: ownerAdminId.value.trim(),
-      url: initialUrl.value.trim()
+      url: initialUrl.value.trim(),
+      packageName: initialPackage.value.trim(),
+      iconUrl: initialIcon.value.trim(),
+      splashUrl: initialSplash.value.trim()
     });
-    document.getElementById("saveUrl").onclick = () => post("/api/admin/apps/" + encodeURIComponent(appKey.value.trim()) + "/url", {
+    loadMyApps.onclick = async () => {
+      const path = "/api/admin/apps?adminId=" + encodeURIComponent(adminId.value.trim()) + "&adminKey=" + encodeURIComponent(adminKey.value.trim());
+      const data = await getJson(path);
+      if (data.error) return;
+      loadedApps = data.apps || [];
+      myApps.innerHTML = loadedApps.map((app, index) => '<option value="' + index + '">' + appOptionText(app) + '</option>').join("");
+      if (loadedApps[0]) { myApps.value = "0"; fillAppEditor(loadedApps[0]); }
+    };
+    myApps.onchange = () => fillAppEditor(loadedApps[Number(myApps.value)]);
+    saveSettings.onclick = async () => {
+      const data = await post("/api/admin/apps/" + encodeURIComponent(editAppKey.value.trim()) + "/settings", {
+        adminId: adminId.value.trim(),
+        adminKey: adminKey.value.trim(),
+        name: editName.value.trim(),
+        url: editUrl.value.trim(),
+        packageName: editPackage.value.trim(),
+        iconUrl: editIcon.value.trim(),
+        splashUrl: editSplash.value.trim()
+      });
+      if (data.app) fillAppEditor(data.app);
+    };
+    requestBuild.onclick = async () => {
+      const data = await post("/api/admin/apps/" + encodeURIComponent(editAppKey.value.trim()) + "/builds", {
       adminId: adminId.value.trim(),
-      adminKey: adminKey.value.trim(),
-      url: url.value.trim()
-    });
+      adminKey: adminKey.value.trim()
+      });
+      if (data.app) fillAppEditor(data.app);
+    };
   </script>
 </body>
 </html>`;
@@ -543,6 +779,12 @@ async function handleRequest(req, res) {
         name: body.name || body.appKey,
         ownerAdminId: body.ownerAdminId,
         url: normalizeUrl(body.url),
+        packageName: normalizePackageName(body.packageName, body.appKey),
+        iconUrl: normalizeOptionalUrl(body.iconUrl),
+        splashUrl: normalizeOptionalUrl(body.splashUrl),
+        buildStatus: existing ? existing.buildStatus : "not_requested",
+        buildRequestedAt: existing ? existing.buildRequestedAt : null,
+        apkUrl: existing ? existing.apkUrl : "",
         createdBy: "super_admin",
         createdAt: existing ? existing.createdAt : now(),
         updatedAt: now(),
@@ -552,7 +794,7 @@ async function handleRequest(req, res) {
       owner.updatedAt = now();
       data.platform.updatedAt = now();
       await writeData(data);
-      return sendJson(res, 200, { ok: true, appKey: body.appKey, ownerAdminId: body.ownerAdminId, url: data.apps[body.appKey].url });
+      return sendJson(res, 200, { ok: true, app: adminApp(body.appKey, data.apps[body.appKey]) });
     } catch (error) {
       return sendJson(res, 400, { error: error.message });
     }
@@ -570,7 +812,7 @@ async function handleRequest(req, res) {
     return sendJson(res, 200, {
       adminId,
       role: "customer_admin",
-      apps: admin.appKeys.map((appKey) => publicApp(appKey, data.apps[appKey])).filter(Boolean),
+      apps: admin.appKeys.map((appKey) => data.apps[appKey] ? adminApp(appKey, data.apps[appKey]) : null).filter(Boolean),
     });
   }
 
@@ -595,6 +837,58 @@ async function handleRequest(req, res) {
     } catch (error) {
       return sendJson(res, 400, { error: error.message });
     }
+  }
+
+  const updateSettingsMatch = pathname.match(/^\/api\/admin\/apps\/([^/]+)\/settings$/);
+  if (req.method === "POST" && updateSettingsMatch) {
+    const appKey = decodeURIComponent(updateSettingsMatch[1]);
+    if (!isValidId(appKey)) return sendJson(res, 400, { error: "Invalid app_key" });
+
+    const body = await readBody(req);
+    const data = await readData();
+    const app = data.apps[appKey];
+    if (!app) return sendJson(res, 404, { error: "Unknown app_key" });
+    if (!hasCustomerAdminAccess(data, app, body.adminId, body.adminKey)) {
+      return sendJson(res, 403, { error: "Invalid customer admin credentials for this app" });
+    }
+
+    try {
+      app.name = body.name || app.name;
+      app.url = normalizeUrl(body.url || app.url);
+      app.packageName = normalizePackageName(body.packageName || app.packageName, appKey);
+      app.iconUrl = normalizeOptionalUrl(body.iconUrl);
+      app.splashUrl = normalizeOptionalUrl(body.splashUrl);
+      app.updatedAt = now();
+      await writeData(data);
+      return sendJson(res, 200, { ok: true, app: adminApp(appKey, app) });
+    } catch (error) {
+      return sendJson(res, 400, { error: error.message });
+    }
+  }
+
+  const buildRequestMatch = pathname.match(/^\/api\/admin\/apps\/([^/]+)\/builds$/);
+  if (req.method === "POST" && buildRequestMatch) {
+    const appKey = decodeURIComponent(buildRequestMatch[1]);
+    if (!isValidId(appKey)) return sendJson(res, 400, { error: "Invalid app_key" });
+
+    const body = await readBody(req);
+    const data = await readData();
+    const app = data.apps[appKey];
+    if (!app) return sendJson(res, 404, { error: "Unknown app_key" });
+    if (!hasCustomerAdminAccess(data, app, body.adminId, body.adminKey)) {
+      return sendJson(res, 403, { error: "Invalid customer admin credentials for this app" });
+    }
+
+    app.buildStatus = "queued";
+    app.buildRequestedAt = now();
+    app.apkUrl = "";
+    app.updatedAt = now();
+    await writeData(data);
+    return sendJson(res, 200, {
+      ok: true,
+      message: "Build request queued. Connect GitHub Actions or a build worker to generate the APK.",
+      app: adminApp(appKey, app),
+    });
   }
 
   return sendJson(res, 404, { error: "Not found" });
