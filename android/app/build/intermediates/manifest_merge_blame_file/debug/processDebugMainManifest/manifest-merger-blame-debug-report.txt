@@ -1,0 +1,53 @@
+1<?xml version="1.0" encoding="utf-8"?>
+2<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+3    package="com.example.webshell"
+4    android:versionCode="1"
+5    android:versionName="1.0" >
+6
+7    <uses-sdk
+8        android:minSdkVersion="23"
+9        android:targetSdkVersion="35" />
+10
+11    <uses-permission android:name="android.permission.INTERNET" />
+11-->D:\web1\android\app\src\main\AndroidManifest.xml:2:5-67
+11-->D:\web1\android\app\src\main\AndroidManifest.xml:2:22-64
+12
+13    <application
+13-->D:\web1\android\app\src\main\AndroidManifest.xml:4:5-20:19
+14        android:allowBackup="true"
+14-->D:\web1\android\app\src\main\AndroidManifest.xml:5:9-35
+15        android:debuggable="true"
+16        android:extractNativeLibs="false"
+17        android:label="Web1 Shell"
+17-->D:\web1\android\app\src\main\AndroidManifest.xml:6:9-35
+18        android:testOnly="true"
+19        android:theme="@style/AppTheme"
+19-->D:\web1\android\app\src\main\AndroidManifest.xml:7:9-40
+20        android:usesCleartextTraffic="true" >
+20-->D:\web1\android\app\src\main\AndroidManifest.xml:8:9-44
+21        <activity
+21-->D:\web1\android\app\src\main\AndroidManifest.xml:9:9-11:40
+22            android:name="com.example.webshell.AdminActivity"
+22-->D:\web1\android\app\src\main\AndroidManifest.xml:10:13-42
+23            android:exported="false" />
+23-->D:\web1\android\app\src\main\AndroidManifest.xml:11:13-37
+24        <activity
+24-->D:\web1\android\app\src\main\AndroidManifest.xml:12:9-19:20
+25            android:name="com.example.webshell.MainActivity"
+25-->D:\web1\android\app\src\main\AndroidManifest.xml:13:13-41
+26            android:exported="true" >
+26-->D:\web1\android\app\src\main\AndroidManifest.xml:14:13-36
+27            <intent-filter>
+27-->D:\web1\android\app\src\main\AndroidManifest.xml:15:13-18:29
+28                <action android:name="android.intent.action.MAIN" />
+28-->D:\web1\android\app\src\main\AndroidManifest.xml:16:17-69
+28-->D:\web1\android\app\src\main\AndroidManifest.xml:16:25-66
+29
+30                <category android:name="android.intent.category.LAUNCHER" />
+30-->D:\web1\android\app\src\main\AndroidManifest.xml:17:17-77
+30-->D:\web1\android\app\src\main\AndroidManifest.xml:17:27-74
+31            </intent-filter>
+32        </activity>
+33    </application>
+34
+35</manifest>
